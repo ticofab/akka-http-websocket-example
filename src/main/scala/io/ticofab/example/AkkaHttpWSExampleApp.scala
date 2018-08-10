@@ -1,16 +1,16 @@
 package io.ticofab.example
 
-import akka.actor.{Actor, ActorRef, ActorSystem, Props}
+import akka.actor.{Actor, ActorSystem, Props}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.StatusCodes
 import akka.http.scaladsl.model.ws.{Message, TextMessage, WebSocketRequest}
 import akka.http.scaladsl.server.Directives.{path, _}
+import akka.pattern.ask
 import akka.stream.scaladsl.GraphDSL.Implicits._
 import akka.stream.scaladsl.{Flow, GraphDSL, Keep, Sink, Source}
 import akka.stream.{ActorMaterializer, FlowShape, OverflowStrategy}
 import akka.{Done, NotUsed}
-import akka.pattern.ask
-import io.ticofab.example.Route.{GetFlow, as}
+import io.ticofab.example.Route.GetWebsocketFlow
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
@@ -44,7 +44,7 @@ object AkkaHttpWSExampleApp extends App {
   // completes or fails when the connection succeeds or fails
   // and closed is a Future[Done] representing the stream completion from above
   val (upgradeResponse, closed) =
-  Http().singleWebSocketRequest(WebSocketRequest("ws://localhost:8123/greeter"), flow)
+  Http().singleWebSocketRequest(WebSocketRequest("ws://localhost:8123/connect"), flow)
 
   val connected = upgradeResponse.map { upgrade =>
     // just like a regular http request we can access response status which is available via upgrade.response.status
@@ -66,7 +66,7 @@ object AkkaHttpWSExampleApp extends App {
 
 object Route {
 
-  case object GetFlow
+  case object GetWebsocketFlow
 
   implicit val as = ActorSystem("example")
   implicit val am = ActorMaterializer()
@@ -74,23 +74,20 @@ object Route {
   val websocketRoute =
     pathEndOrSingleSlash {
       complete("WS server is alive\n")
-    } ~ path("greeter") {
-      parameters("lat".as[Int], "lon".as[Int]) { (lat, lon) =>
-        println(s"($lat, $lon)")
+    } ~ path("connect") {
 
-        val greeter = as.actorOf(Props[GreeterActor])
-        val futHandler = (greeter ? GetFlow)(3.seconds).mapTo[Flow[Message, Message, _]]
+      val handler = as.actorOf(Props[ClientHandlerActor])
+      val futureFlow = (handler ? GetWebsocketFlow) (3.seconds).mapTo[Flow[Message, Message, _]]
 
-        onComplete(futHandler) {
-          case Success(flow) => handleWebSocketMessages(flow)
-          case Failure(err) => complete(err.toString)
-        }
-
+      onComplete(futureFlow) {
+        case Success(flow) => handleWebSocketMessages(flow)
+        case Failure(err) => complete(err.toString)
       }
+
     }
 }
 
-class GreeterActor extends Actor {
+class ClientHandlerActor extends Actor {
 
   implicit val as = context.system
   implicit val am = ActorMaterializer()
@@ -110,7 +107,7 @@ class GreeterActor extends Actor {
   })
 
   override def receive = {
-    case GetFlow =>
+    case GetWebsocketFlow =>
 
       val flow = Flow.fromGraph(GraphDSL.create() { implicit b =>
         val textMsgFlow = b.add(Flow[Message]
@@ -129,12 +126,12 @@ class GreeterActor extends Actor {
 
     // replies with "hello XXX"
     case s: String =>
-      println(s"greeter received $s")
+      println(s"client actor received $s")
       down ! "Hello " + s + "!"
 
     // passes any int down the websocket
     case n: Int =>
-      println(s"greeter received $n")
+      println(s"client actor received $n")
       down ! n.toString
   }
 }

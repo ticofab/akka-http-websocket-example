@@ -13,14 +13,16 @@ class AkkaHttpWSExampleSpec extends WordSpec with Matchers
   implicit val am = ActorMaterializer()
 
 
-  "A greeter Websocket" should {
-    "Respond with the right greeting" in {
+  "A handler Websocket" should {
+
+    "Send the expected messages" in {
+
       // tests:
       // create a testing probe representing the client-side
       val wsClient = WSProbe()
 
       // WS creates a WebSocket request for testing
-      WS("/greeter?lat=1&lon=2", wsClient.flow) ~> Route.websocketRoute ~>
+      WS("/connect", wsClient.flow) ~> Route.websocketRoute ~>
         check {
           // check response for WS Upgrade headers
           isWebSocketUpgrade shouldEqual true
