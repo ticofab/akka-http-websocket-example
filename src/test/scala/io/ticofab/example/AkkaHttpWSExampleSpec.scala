@@ -20,12 +20,11 @@ class AkkaHttpWSExampleSpec extends WordSpec with Matchers
       val wsClient = WSProbe()
 
       // WS creates a WebSocket request for testing
-      WS("/greeter", wsClient.flow) ~> Route.websocketRoute ~>
+      WS("/greeter?lat=1&lon=2", wsClient.flow) ~> Route.websocketRoute ~>
         check {
           // check response for WS Upgrade headers
           isWebSocketUpgrade shouldEqual true
 
-          // manually run a WS conversation
           wsClient.expectMessage("1")
           wsClient.expectMessage("2")
           wsClient.expectMessage("3")

@@ -9,6 +9,8 @@ import akka.stream.scaladsl.GraphDSL.Implicits._
 import akka.stream.scaladsl.{Flow, GraphDSL, Keep, Sink, Source}
 import akka.stream.{ActorMaterializer, FlowShape, OverflowStrategy}
 import akka.{Done, NotUsed}
+import akka.pattern.ask
+import io.ticofab.example.Route.{GetFlow, as}
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
@@ -64,59 +66,75 @@ object AkkaHttpWSExampleApp extends App {
 
 object Route {
 
+  case object GetFlow
+
   implicit val as = ActorSystem("example")
   implicit val am = ActorMaterializer()
 
   val websocketRoute =
     pathEndOrSingleSlash {
-      complete("WS server is alive.\n")
+      complete("WS server is alive\n")
     } ~ path("greeter") {
+      parameters("lat".as[Int], "lon".as[Int]) { (lat, lon) =>
+        println(s"($lat, $lon)")
 
-      val (downRef, publisher) = Source
-        .actorRef[String](1000, OverflowStrategy.fail)
-        .toMat(Sink.asPublisher(fanout = false))(Keep.both)
-        .run()
+        val greeter = as.actorOf(Props[GreeterActor])
+        val futHandler = (greeter ? GetFlow)(3.seconds).mapTo[Flow[Message, Message, _]]
 
-      var counter = 0
-      val greeter = as.actorOf(Props(new GreeterActor(downRef)))
-      as.scheduler.schedule(0.seconds, 0.5.second, new Runnable {
-        override def run() = {
-          counter = counter + 1
-          greeter ! counter
+        onComplete(futHandler) {
+          case Success(flow) => handleWebSocketMessages(flow)
+          case Failure(err) => complete(err.toString)
         }
-      })
 
-      val handler = Flow.fromGraph(GraphDSL.create() { implicit b =>
+      }
+    }
+}
 
+class GreeterActor extends Actor {
+
+  implicit val as = context.system
+  implicit val am = ActorMaterializer()
+
+  val (down, publisher) = Source
+    .actorRef[String](1000, OverflowStrategy.fail)
+    .toMat(Sink.asPublisher(fanout = false))(Keep.both)
+    .run()
+
+  // test
+  var counter = 0
+  as.scheduler.schedule(0.seconds, 0.5.second, new Runnable {
+    override def run() = {
+      counter = counter + 1
+      self ! counter
+    }
+  })
+
+  override def receive = {
+    case GetFlow =>
+
+      val flow = Flow.fromGraph(GraphDSL.create() { implicit b =>
         val textMsgFlow = b.add(Flow[Message]
           .mapAsync(1) {
             case tm: TextMessage => tm.toStrict(3.seconds).map(_.text)
             case _ => Future.failed(new Exception("yuck"))
           })
 
-        val actorSink = b.add(Sink.foreach[String](greeter ! _))
-
         val pubSrc = b.add(Source.fromPublisher(publisher).map(TextMessage(_)))
 
-        textMsgFlow ~> actorSink
-
+        textMsgFlow ~> Sink.foreach[String](self ! _)
         FlowShape(textMsgFlow.in, pubSrc.out)
       })
 
-      handleWebSocketMessages(handler)
-    }
-}
+      sender ! flow
 
-class GreeterActor(down: ActorRef) extends Actor {
-
-  implicit val as = context.system
-  implicit val am = ActorMaterializer()
-
-  override def receive = {
     // replies with "hello XXX"
-    case s: String => down ! "Hello " + s + "!"
+    case s: String =>
+      println(s"greeter received $s")
+      down ! "Hello " + s + "!"
 
     // passes any int down the websocket
-    case n: Int => down ! n.toString
+    case n: Int =>
+      println(s"greeter received $n")
+      down ! n.toString
   }
 }
