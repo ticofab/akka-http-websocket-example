@@ -3,7 +3,7 @@ package io.ticofab.example
 import akka.actor.{Actor, ActorSystem, Props}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.StatusCodes
-import akka.http.scaladsl.model.ws.{Message, TextMessage, WebSocketRequest}
+import akka.http.scaladsl.model.ws.{BinaryMessage, Message, TextMessage, WebSocketRequest}
 import akka.http.scaladsl.server.Directives.{path, _}
 import akka.pattern.ask
 import akka.stream.scaladsl.GraphDSL.Implicits._
@@ -113,7 +113,10 @@ class ClientHandlerActor extends Actor {
         val textMsgFlow = b.add(Flow[Message]
           .mapAsync(1) {
             case tm: TextMessage => tm.toStrict(3.seconds).map(_.text)
-            case _ => Future.failed(new Exception("yuck"))
+            case bm: BinaryMessage =>
+              // consume the stream
+              bm.dataStream.runWith(Sink.ignore)
+              Future.failed(new Exception("yuck"))
           })
 
         val pubSrc = b.add(Source.fromPublisher(publisher).map(TextMessage(_)))
