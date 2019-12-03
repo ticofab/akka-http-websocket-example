@@ -7,11 +7,11 @@ examples I could find were somewhat more complicated and mostly about the chat u
 * This actor will reply with `"Hallo " + s` when receiving a string message
 * This actor will pipe down to the client any `int` value it receives.
 
-All information is described on my blog: [Akka Http Websocket Example]()
+All information is described on my blog: [Akka Http Websocket Example](http://ticofab.io/akka-http-websocket-example/)
 
 ## License
 
-    Copyright 2018 Fabio Tiriticco
+    Copyright 2018 - 2019 Fabio Tiriticco
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
